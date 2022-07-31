@@ -1,13 +1,21 @@
-# Copyright (c) 2020 Graz University of Technology All rights reserved.
+# Copyright (c) Facebook, Inc. and its affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the license found in the
+# LICENSE file in the root directory of this source tree.
+#
 
 import torch
 import torch.utils.data
 from common.utils.preprocessing import *
 from common.utils.transforms import world2cam, cam2pixel, pixel2cam, transformManoParamsToCam, convert_pose_to_opencv
+import json
 import smplx
+import open3d as o3d
 from tqdm import tqdm
 from common.utils.misc import get_root_rel_from_parent_rel_depths
 ih26m_joint_regressor = np.load(cfg.joint_regr_np_path)
+from common.utils.misc import my_print
 
 
 jointsMapManoToDefault = [
@@ -21,14 +29,13 @@ jointsMapManoToDefault = [
 
 
 
-class Dataset(torch.utils.data.Dataset):
+class HO3D(torch.utils.data.Dataset):
     def __init__(self, transform, mode, annot_subset, capture=None, camera=None, seq_name_test=None):
         self.mode = mode  # train, test, val
         if mode == 'test':
             self.mode = 'evaluation' # train, test, val
 
-        self.dataset_path_h2o3d = cfg.h2o3d_anno_dir
-        self.dataset_path_ho3d = cfg.ho3d_anno_dir
+        self.dataset_path = cfg.ho3d_anno_dir
         self.obj_kps_dir = cfg.obj_kps_dir
 
         self.transform = transform
@@ -43,16 +50,9 @@ class Dataset(torch.utils.data.Dataset):
         self.sequence_names = []
 
         # load annotation
-        with open(osp.join(self.dataset_path_h2o3d, self.mode+'.txt'), 'r') as f:
-            self.filelist_h2o3d = f.readlines()
-        with open(osp.join(self.dataset_path_ho3d, self.mode+'.txt'), 'r') as f:
-            self.filelist_ho3d = f.readlines()
-        self.filelist_h2o3d = [f.strip() for f in self.filelist_h2o3d]
-        self.filelist_ho3d = [f.strip() for f in self.filelist_ho3d]
-
-        self.dataset_name = ['h2o3d']*len(self.filelist_h2o3d) + ['ho3d']*len(self.filelist_ho3d)
-        self.filelist = self.filelist_h2o3d + self.filelist_ho3d
-        assert len(self.filelist) == len(self.dataset_name)
+        with open(osp.join(self.dataset_path, self.mode+'.txt'), 'r') as f:
+            self.filelist = f.readlines()
+        self.filelist = [f.strip() for f in self.filelist]
         
         self.mano_layer = {'right': smplx.create(cfg.smplx_path, 'mano', use_pca=False, is_rhand=True, flat_hand_mean=True),
                            'left': smplx.create(cfg.smplx_path, 'mano', use_pca=False, is_rhand=False, flat_hand_mean=True)}
@@ -61,67 +61,38 @@ class Dataset(torch.utils.data.Dataset):
                 self.mano_layer['left'].shapedirs[:, 0, :] - self.mano_layer['right'].shapedirs[:, 0, :])) < 1:
             # print('Fix shapedirs bug of MANO')
             self.mano_layer['left'].shapedirs[:, 0, :] *= -1
-
-
-        for fid in tqdm(range(len(self.filelist))):
-            fname = self.filelist[fid]
-            ds_curr = self.dataset_name[fid]
-            ds_path_curr = self.dataset_path_h2o3d if ds_curr == 'h2o3d' else self.dataset_path_ho3d
-
+        
+        for fname in tqdm(self.filelist[::1]):
             seq_name = fname.split('/')[0]
             frame_idx = fname.split('/')[1]
-
-            if ds_curr == 'h2o3d':
-                img_path = osp.join(ds_path_curr, self.mode, seq_name, 'rgb', frame_idx + '.png')
-                seg_path = osp.join(ds_path_curr, self.mode, seq_name, 'segr', frame_idx+'.png')
-                obj_seg_channel = 1 # in rgb order
-            else:
-                img_path = osp.join(ds_path_curr, self.mode, seq_name, 'rgb', frame_idx + '.jpg')
-                seg_path = osp.join(ds_path_curr, 'segr', self.mode, seq_name, 'seg', frame_idx+'.png')
-                obj_seg_channel = 1  # in rgb order
-            anno_path = osp.join(ds_path_curr, self.mode, seq_name, 'meta', frame_idx+'.pkl')
+            img_path = osp.join(self.dataset_path, self.mode, seq_name, 'rgb', frame_idx+'.png')
+            anno_path = osp.join(self.dataset_path, self.mode, seq_name, 'meta', frame_idx+'.pkl')
 
             if seq_name_test is not None:
                 if seq_name_test != seq_name:
                     continue
 
-
             anno = load_pickle_data(anno_path)
-
-            if ds_curr == 'ho3d':
-                anno['rightHandJoints3D'] = anno['handJoints3D']
-                anno['leftHandJoints3D'] = np.zeros_like(anno['handJoints3D'])
-                anno['rightHandPose'] = anno['handPose']
-                anno['rightHandTrans'] = anno['handTrans']
-                hand_type = 'right'
-                joint_valid = np.ones((self.joint_num * 2))
-                joint_valid[21:] = 0.
-                mano_valid = np.array([True, False])  # right, left valid
-            else:
-                hand_type = 'interacting'
-                if 'jointValidRight' in anno.keys():
-                    joint_valid = np.concatenate([anno['jointValidRight'], anno['jointValidLeft']], axis=0)
-                    mano_valid = np.array([np.all(anno['poseValidRight']), np.all(anno['poseValidLeft'])])  # right, left valid
-                else:
-                    joint_valid = np.ones((self.joint_num * 2))
-                    mano_valid = np.array([True, True])  # right, left valid
-
 
             focal, princpt = np.array([anno['camMat'][0,0], anno['camMat'][1,1]], dtype=np.float32), np.array([anno['camMat'][0,2], anno['camMat'][1,2]], dtype=np.float32)
             if self.mode == 'evaluation':
-                anno_hand_joints_3d = np.concatenate([anno['rightHandJoints3D'][jointsMapManoToDefault],
-                                                      anno['leftHandJoints3D'][jointsMapManoToDefault]])
+                anno_hand_joints_3d = np.expand_dims(anno['handJoints3D'],0)
+                anno_hand_joints_3d = np.concatenate([anno_hand_joints_3d, np.zeros((20,3))], axis=0)
                 anno['handPose'] = np.zeros((48,)) * 1.0
                 anno['handTrans'] = np.zeros((3,)) * 1.0
                 anno['handBeta'] = np.zeros((10,)) * 1.0
             else:
-                anno_hand_joints_3d = np.concatenate([anno['rightHandJoints3D'][jointsMapManoToDefault], anno['leftHandJoints3D'][jointsMapManoToDefault]])
-            joint_cam = swap_coord_sys(anno_hand_joints_3d)*1000
+                anno_hand_joints_3d = anno['handJoints3D']
+            joint_cam = swap_coord_sys(anno_hand_joints_3d)[jointsMapManoToDefault]*1000
+            joint_cam = np.concatenate([joint_cam, np.zeros_like(joint_cam)], axis=0)
             joint_img = cam2pixel(joint_cam, focal, princpt)[:,:2]
 
             obj_cam = swap_coord_sys(anno['objCorners3D'])*1000
             obj_img = cam2pixel(swap_coord_sys(anno['objCorners3D']), focal, princpt)[:,:2]
 
+            hand_type = 'right'
+            joint_valid = np.ones((self.joint_num*2))
+            joint_valid[21:] = 0
 
             obj_rot, obj_trans = convert_pose_to_opencv(anno['objRot'].squeeze(), anno['objTrans'])
 
@@ -130,27 +101,20 @@ class Dataset(torch.utils.data.Dataset):
             mano_pose = []
             mano_trans = []
             mano_shape = []
-
-            coordChangMat = np.array([[1., 0., 0.], [0., -1., 0.], [0., 0., -1.]])
+            mano_valid = np.array([True, False]) # right, left valid
             for ii, ht in enumerate(mano_hand_type):
-                if mano_valid[ii] == 1:
-                    if ht == 'right':
-                        pose, trans, _ = transformManoParamsToCam(anno['rightHandPose'].squeeze(), anno['rightHandTrans'].squeeze(),anno['handBeta'].squeeze(),
-                                                               cv2.Rodrigues(coordChangMat)[0].squeeze(), np.zeros((3,)), 'right')
-                        shape = anno['handBeta'].squeeze()
-                        assert np.sum(joint_valid[self.joint_type[ht]]) > 0
-                    else:
-                        pose, trans, _ = transformManoParamsToCam(anno['leftHandPose'].squeeze(),
-                                                                  anno['leftHandTrans'].squeeze(),
-                                                                  anno['handBeta'].squeeze(),
-                                                                  cv2.Rodrigues(coordChangMat)[0].squeeze(), np.zeros((3,)),
-                                                                  'left')
-                        shape = anno['handBeta'].squeeze()
-                        assert np.sum(joint_valid[self.joint_type[ht]]) > 0
+                if ht == 'right':
+                    # pose, trans = convert_pose_to_opencv(anno['handPose'].squeeze(), anno['handTrans'].squeeze())
+                    coordChangMat = np.array([[1., 0., 0.], [0., -1., 0.], [0., 0., -1.]])
+                    pose, trans, _ = transformManoParamsToCam(anno['handPose'].squeeze(), anno['handTrans'].squeeze(),anno['handBeta'].squeeze(),
+                                                           cv2.Rodrigues(coordChangMat)[0].squeeze(), np.zeros((3,)), 'right')
+                    shape = anno['handBeta'].squeeze()
+                    assert np.sum(joint_valid[self.joint_type[ht]]) > 0
                 else:
-                    pose = np.zeros((48,)) * 1.0
-                    trans = np.zeros((3,)) * 1.0
-                    shape = np.zeros((10,)) * 1.0
+                    mano_valid[ii] = False
+                    pose = np.zeros((48,))*1.0
+                    trans = np.zeros((3,))*1.0
+                    shape = np.zeros((10,))*1.0
 
                 mano_pose.append(pose)
                 mano_trans.append(trans.squeeze())
@@ -175,7 +139,7 @@ class Dataset(torch.utils.data.Dataset):
             
 
             img_width, img_height = 640, 480
-            if self.mode == 'evaluation' and ds_curr == 'ho3d':
+            if self.mode == 'evaluation':
                 hand_bb = np.array([[anno['handBoundingBox'][0], anno['handBoundingBox'][1]], [anno['handBoundingBox'][2], anno['handBoundingBox'][3]]])
                 tl = np.min(np.concatenate([hand_bb, obj_img], axis=0), axis=0)
                 br = np.max(np.concatenate([hand_bb, obj_img], axis=0), axis=0)
@@ -189,28 +153,22 @@ class Dataset(torch.utils.data.Dataset):
 
             obj_bb_rest = anno['objCorners3DRest']
 
-
-            obj_kps_3d_rest = np.load(osp.join(self.obj_kps_dir, '%s.npy' % (anno['objName'])))
+            obj_kps_3d_rest = np.load(osp.join(self.obj_kps_dir, '%s.npy'%(anno['objName'])))
             obj_kps_3d = obj_kps_3d_rest.dot(cv2.Rodrigues(obj_rot)[0].T) + obj_trans
             obj_kps_2d = cam2pixel(obj_kps_3d, focal, princpt)[:,:2]
 
             obj_pose_valid = 1.
 
-            if anno['objName'] == '024_bowl':
-                obj_bb_rest[:,:2] = 0
-
-
             cam_param = {'focal': focal, 'princpt': princpt}
             joint = {'cam_coord': joint_cam.astype(np.float32), 'img_coord': joint_img.astype(np.float32), 'valid': joint_valid.astype(np.float32)}
             object = {'cam_coord': obj_cam.astype(np.float32), 'img_coord': obj_img.astype(np.float32),
-                      'obj_bb_rest': obj_bb_rest.astype(np.float32), 'obj_kps_2d':obj_kps_2d,
-                      'obj_kps_3d':obj_kps_3d, 'obj_id': int(anno['objName'][:3]), 'obj_kps_3d_rest': obj_kps_3d_rest}
+                      'obj_bb_rest': obj_bb_rest.astype(np.float32), 'obj_kps_2d':obj_kps_2d, 'obj_kps_3d':obj_kps_3d,
+                      'obj_id': int(anno['objName'][:3]), 'obj_kps_3d_rest': obj_kps_3d_rest}
             data = {'img_path': img_path, 'seq_name': seq_name, 'cam_param': cam_param,
                     'bbox': bbox, 'joint': joint, 'object': object, 'hand_type': hand_type, 'hand_type_valid': hand_type_valid,
                     'abs_depth': abs_depth, 'file_name': frame_idx+'.png', 'capture': 0, 'cam': 0,
                     'frame': frame_idx, 'mano_pose': mano_pose, 'mano_trans': mano_trans, 'mano_shape': mano_shape,
-                    'mano_valid': mano_valid, 'obj_rot': obj_rot, 'obj_trans': obj_trans, 'obj_pose_valid': obj_pose_valid, 'seg_path':seg_path,
-                    'obj_seg_channel': obj_seg_channel}
+                    'mano_valid': mano_valid, 'obj_rot': obj_rot, 'obj_trans': obj_trans, 'obj_pose_valid': obj_pose_valid}
             if hand_type == 'right' or hand_type == 'left':
                 self.datalist_sh.append(data)
             else:
@@ -279,8 +237,6 @@ class Dataset(torch.utils.data.Dataset):
     def __getitem__(self, idx):
         data = self.datalist[idx]
         img_path, bbox, joint, object, hand_type, hand_type_valid = data['img_path'], data['bbox'], data['joint'], data['object'], data['hand_type'], data['hand_type_valid']
-        seg_path = data['seg_path']
-        obj_seg_channel = data['obj_seg_channel']
         mano_pose, mano_trans, mano_shape, mano_valid = data['mano_pose'].copy(), data['mano_trans'].copy(), data['mano_shape'].copy(), data['mano_valid'].copy()
         obj_rot, obj_trans = data['obj_rot'].copy(), data['obj_trans'].copy()
         joint_cam = joint['cam_coord'].copy(); joint_img = joint['img_coord'].copy(); joint_valid = joint['valid'].copy().astype(np.float32);
@@ -292,11 +248,12 @@ class Dataset(torch.utils.data.Dataset):
         obj_coord = np.concatenate((obj_img, obj_cam[:,2,None].copy()),1)
         obj_kps_coord = np.concatenate((obj_kps_img, obj_kps_cam[:,2,None].copy()),1)
 
-        obj_pose_valid = data['obj_pose_valid']
-
         # make the obj trans relative to hand, so that when augmentation is done its all good
         if cfg.predict_type == 'angles':
-            obj_trans = obj_trans - mano_trans[:3]
+            if self.mode == 'evaluation':
+                obj_trans = obj_trans - joint_cam[self.root_joint_idx['right']] / 1000
+            else:
+                obj_trans = obj_trans - mano_trans[:3]
         elif cfg.predict_type == 'vectors':
             obj_trans = obj_trans - joint_cam[self.root_joint_idx['right']]/1000
 
@@ -308,7 +265,7 @@ class Dataset(torch.utils.data.Dataset):
 
         # image load
         img = load_img(img_path)
-        obj_seg = load_img(seg_path)
+        obj_seg = load_img(osp.join(self.dataset_path, 'segr', self.mode, data['seq_name'], 'seg', data['frame']+'.jpg'))
         obj_seg = cv2.resize(obj_seg.astype(np.uint8), (img.shape[1], img.shape[0]), interpolation=cv2.INTER_NEAREST)
 
         # augmentation
@@ -317,11 +274,11 @@ class Dataset(torch.utils.data.Dataset):
             augmentation(img, bbox, joint_obj_coord, joint_valid, hand_type, self.mode, self.joint_type,
                          mano_pose, mano_trans, mano_shape, joint_obj_cam, obj_seg, obj_rot, obj_trans)
 
+
         obj_seg = cv2.resize(obj_seg, (cfg.output_hm_shape[1], cfg.output_hm_shape[2]), interpolation=cv2.INTER_NEAREST)
 
 
         if do_flip:
-            obj_pose_valid *= 0
             mano_valid = mano_valid[[1, 0]]
 
 
@@ -350,14 +307,11 @@ class Dataset(torch.utils.data.Dataset):
         obj_coord = joint_obj_coord[42:42+num_kps].astype(np.float32)
         obj_corners_coord = joint_obj_coord[42+num_kps:]
 
-        # fill some dummy values in obj_coord
-        dummy = np.zeros((30-obj_coord.shape[0],3)) + np.array([-2000, -2000, -2000])
-        obj_coord = np.concatenate([obj_coord, dummy],axis=0).astype(np.float32)
 
         obj_coord[:,2] = obj_coord[:,2] - obj_coord[0,2]# rel depths for now, not used anywhere yet!
 
         img = self.transform(img.astype(np.float32)) / 255.
-        obj_seg = (obj_seg[:,:,obj_seg_channel]>200)*255.
+        obj_seg = (obj_seg[:,:,2]>200)*255.
         obj_seg = self.transform(obj_seg.astype(np.float32))[0]
 
 
@@ -386,15 +340,13 @@ class Dataset(torch.utils.data.Dataset):
                 # when its only left hand, shift it closer to right hand
                 rel_trans_hands_rTol = np.array([0.2, 0., 0.]).astype(np.float32)
 
-            right_root_loc = joint_cam_no_trans[self.root_joint_idx['right']].copy()
+
             joint_cam_no_trans[self.joint_type['right']] -= joint_cam_no_trans[self.root_joint_idx['right']]
             joint_cam_no_trans[self.joint_type['left']] -= joint_cam_no_trans[self.root_joint_idx['left']]
             joint_cam_no_trans[self.joint_type['left']] += rel_trans_hands_rTol * 1000
 
 
-
         obj_kps_3d = obj_kps_rest.dot(cv2.Rodrigues(obj_rot)[0].T) + rel_trans_obj
-
 
         # use zero mask for now. Later if required put ones along padded pixels
         mask = np.zeros((img.shape[1], img.shape[2])).astype(np.bool)
@@ -409,26 +361,39 @@ class Dataset(torch.utils.data.Dataset):
             verts = np.zeros((1,3))
 
 
-
-        if np.sum(obj_seg.cpu().numpy())/128/128/255 < 0.02:
+        obj_pose_valid = data['obj_pose_valid']
+        if np.sum(obj_seg.cpu().numpy()) == 0:
             obj_pose_valid *= 0.
         else:
             obj_pose_valid *= 1.
 
+        if False:
+            rotmat = np.array([[1,0,0,0],[0,-1,0,0],[0,0,-1,0],[0,0,0,1]])*1.0
+            # visualize mesh in open3d
+            # print(mano_valid)
+            print(seq_name, data['frame'])
+            mesh_list = []
+            if hand_type[0] == 1:
+                mesh_right_o3d = o3d.geometry.TriangleMesh()
+                mesh_right_o3d.vertices = o3d.utility.Vector3dVector(verts_right)
+                mesh_right_o3d.triangles = o3d.utility.Vector3iVector(faces)
+                mesh_right_o3d.vertex_colors = o3d.utility.Vector3dVector(
+                    np.load('/home/shreyas/docs/vertex_colors.npy')[:,::-1])
+                mesh_list.append(mesh_right_o3d.transform(rotmat))
 
+            if hand_type[1] == 1:
+                mesh_left_o3d = o3d.geometry.TriangleMesh()
+                mesh_left_o3d.vertices = o3d.utility.Vector3dVector(verts_left)
+                mesh_left_o3d.triangles = o3d.utility.Vector3iVector(faces)
+                mesh_left_o3d.vertex_colors = o3d.utility.Vector3dVector(
+                    np.load('/home/shreyas/docs/vertex_colors.npy')[:,::-1])
+                mesh_list.append(mesh_left_o3d.transform(rotmat))
 
-        # heatmap valid flag. If its interacting and only one of the hand annotations is valid, set hm_valid=0
-        if (np.sum(hand_type) == 2 and np.sum(joint_valid[:21]) < 21) or (
-                np.sum(hand_type) == 2 and np.sum(joint_valid[21:]) < 21):
-            hm_valid = np.array([0.]).astype(np.float32)
-        else:
-            hm_valid = np.array([1.]).astype(np.float32)
+            o3d.visualization.draw_geometries(mesh_list, mesh_show_back_face=True)
 
-        if np.sum(joint_valid[:21]) < 21:
-            mano_valid[0] = 0
-
-        if np.sum(joint_valid[21:]) < 21:
-            mano_valid[1] = 0
+        if 'AP1' in seq_name:
+            # this is an unseen object, so pose cant be estimated
+            obj_pose_valid *= 0
 
         if np.sum(img.numpy()) == 0:
             mano_valid *= False
@@ -436,6 +401,13 @@ class Dataset(torch.utils.data.Dataset):
             root_valid *= 0
             hand_type_valid *= 0
             obj_pose_valid *= 0
+
+        # heatmap valid flag. If its interacting and only one of the hand annotations is valid, set hm_valid=0
+        if (np.sum(hand_type) == 2 and np.sum(joint_valid[:21]) < 21) or (
+                np.sum(hand_type) == 2 and np.sum(joint_valid[21:]) < 21):
+            hm_valid = np.array([0.]).astype(np.float32)
+        else:
+            hm_valid = np.array([1.]).astype(np.float32)
 
         inputs = {'img': img, 'mask': mask}
         targets = {'joint_coord': joint_coord, 'rel_trans_hands_rTol': rel_trans_hands_rTol, 'hand_type': hand_type,
@@ -448,8 +420,113 @@ class Dataset(torch.utils.data.Dataset):
                      'mano_valid': mano_valid, 'inv_trans': inv_trans, 'capture': int(data['capture']), 'cam': int(data['cam']),
                      'frame': int(data['frame']), 'seq_id': (seq_name[:9]), 'obj_bb_rest': obj_bb_rest.astype(np.float32),
                      'obj_pose_valid':obj_pose_valid, 'focal': data['cam_param']['focal'], 'princpt': data['cam_param']['princpt'],
-                     'obj_id': data['object']['obj_id'], 'hm_valid': hm_valid}
+                     'obj_id': data['object']['obj_id'], 'obj_kps_rest': obj_kps_rest, 'hm_valid': hm_valid}
         return inputs, targets, meta_info
 
+
+
+    def dump_for_challenge(self, pred_out_path, xyz_pred_list, verts_pred_list):
+        """ Save predictions into a json file. """
+        # make sure its only lists
+        xyz_pred_list = [x.tolist() for x in xyz_pred_list]
+        verts_pred_list = [x.tolist() for x in verts_pred_list]
+
+        # save to a json
+        with open(pred_out_path, 'w') as fo:
+            json.dump(
+                [
+                    xyz_pred_list,
+                    verts_pred_list
+                ], fo)
+        print('Dumped %d joints and %d verts predictions to %s' % (
+        len(xyz_pred_list), len(verts_pred_list), pred_out_path))
+
+    def get_obj_id_name(self):
+        YCB_models_dir = cfg.object_models_dir
+        obj_names = os.listdir(YCB_models_dir)
+        self.obj_id_to_name = {int(o[:3]):o for o in obj_names}
+        self.obj_id_to_vertices = {}
+        self.obj_id_to_dia = {}
+        for id in self.obj_id_to_name.keys():
+            if id not in [3,4,6,10,11,19,21,25,35,37]:
+                continue
+            obj_name = self.obj_id_to_name[id]
+            print(os.path.join(YCB_models_dir, obj_name, 'textured_simple_2000.obj'))
+            assert os.path.exists(os.path.join(YCB_models_dir, obj_name, 'textured_simple_2000.obj')), \
+                '%s not found'%os.path.exists(os.path.join(YCB_models_dir, obj_name, 'textured_simple_2000.obj'))
+            verts = np.array(o3d.io.read_triangle_mesh(os.path.join(YCB_models_dir, obj_name, 'textured_simple_2000.obj')).vertices)
+            self.obj_id_to_vertices[id] = verts
+            dia = np.max(np.linalg.norm(verts[:,None,:] - verts[None,:,:],axis=2))
+            self.obj_id_to_dia[id] = dia
+        # print(self.obj_id_to_dia)
+
+
+    def evaluate(self, pred, ckpt_path, gt=None):
+        pred_verts, pred_joints = pred['verts'], pred['joints']
+        self.get_obj_id_name()
+        num_samples = pred_joints.shape[0]
+        pred_joints_list = []
+        pred_verts_list = []
+
+        ckpt_name = ckpt_path.split('/')[-1].split('.')[0]
+        ckpt_dir = os.path.dirname(ckpt_path)
+
+        jointsNormalToManoMap = [20,
+                                 7,6,5,
+                                 11,10,9,
+                                 19,18,17,
+                                 15,14,13,
+                                 3,2,1,
+                                 0,4,8,12,16]
+
+        f_log = open(osp.join(ckpt_dir, '%s_mssd.txt'%(ckpt_name)), 'w')
+
+        my_print('num samples: %d'% num_samples, f_log)
+
+        if gt is not None:
+            num_obj_samples = gt['obj_corners_rest'].shape[0]
+            my_print('num object samples: %d' % num_obj_samples, f_log)
+            all_obj_mssd_dict = {}
+            for ii in tqdm(range(num_obj_samples)):
+                # Get object vertices after rotating along the axis of symmetry (z-axis)
+                rot_dir_z = cv2.Rodrigues(gt['obj_rot'][ii])[0].squeeze()[:3, 2] * np.pi  # N x 3
+                flipped_obj_rot_z = np.matmul(cv2.Rodrigues(rot_dir_z)[0].squeeze(),
+                                               cv2.Rodrigues(gt['obj_rot'][ii])[0].squeeze())  # 3 x 3 # flipped rot
+
+                obj_vert_rest = self.obj_id_to_vertices[gt['obj_id'][ii]]
+
+                obj_vert_gt = np.matmul(obj_vert_rest,cv2.Rodrigues(gt['obj_rot'][ii])[0].squeeze().T) + gt['obj_trans'][ii:ii+1]  # N x 8 x 3
+                obj_vert_flipped_gt_z = np.matmul(obj_vert_rest, flipped_obj_rot_z.T) + gt['obj_trans'][ii:ii + 1]
+
+                obj_vert_pred = np.matmul(obj_vert_rest,cv2.Rodrigues(pred['obj_rot'][ii])[0].squeeze().T) + pred['obj_trans'][ii:ii+1]  # N x 8 x 3
+
+                is_rot_sym_objs_z = gt['obj_id'][ii] in [6,21,10] #mustard, bleach, potted meat
+
+                obj_vert_flipped_gt_z = obj_vert_flipped_gt_z * is_rot_sym_objs_z + obj_vert_gt * (1-is_rot_sym_objs_z)
+
+                metric_mssd = min(np.max(np.linalg.norm(obj_vert_gt - obj_vert_pred, axis=1)),
+                              np.max(np.linalg.norm(obj_vert_flipped_gt_z - obj_vert_pred, axis=1)))
+
+                if gt['obj_id'][ii] not in all_obj_mssd_dict.keys():
+                    all_obj_mssd_dict[gt['obj_id'][ii]] = []
+
+                all_obj_mssd_dict[gt['obj_id'][ii]].append(metric_mssd)
+
+
+            all_obj_mssd = []
+            for id in all_obj_mssd_dict.keys():
+                my_print('Obj MSSD %s = %f mts' % (self.obj_id_to_name[id], np.mean(np.array(all_obj_mssd_dict[id]))),
+                         f_log)
+                all_obj_mssd = all_obj_mssd + all_obj_mssd_dict[id]
+            my_print('Mean MSSD = %f mts' % (np.mean(np.array(all_obj_mssd))), f_log)
+
+
+        for i in range(num_samples):
+            pred_joint_coord_cam = swap_coord_sys(pred_joints[i]/1000)
+            pred_joints_list.append(pred_joint_coord_cam[:21][jointsNormalToManoMap])
+            pred_verts_coord_cam = swap_coord_sys(pred_verts[i]/1000)
+            pred_verts_list.append(pred_verts_coord_cam)
+            continue
+        self.dump_for_challenge(osp.join(ckpt_dir, 'results_%s.json'%(ckpt_name)), pred_joints_list, pred_verts_list)
 
 

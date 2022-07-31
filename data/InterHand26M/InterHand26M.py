@@ -46,10 +46,11 @@ from common.utils.misc import get_root_rel_from_parent_rel_depths
 ih26m_joint_regressor = np.load(cfg.joint_regr_np_path)
 from common.utils.misc import my_print
 import os
+from torchvision import transforms
 
 
-class Dataset(torch.utils.data.Dataset):
-    def __init__(self, transform, mode, annot_subset, capture_test=None, camera_test=None, seq_name_test=None):
+class InterHand26M(torch.utils.data.Dataset):
+    def __init__(self, transform, mode, annot_subset="all", capture_test=None, camera_test=None, seq_name_test=None):
         self.mode = mode  # train, test, val
         self.annot_subset = annot_subset  # all, human_annot, machine_annot
         self.img_path = cfg.interhand_images_path
@@ -112,7 +113,7 @@ class Dataset(torch.utils.data.Dataset):
             print("Not fixing shapedirs bug of MANO")
 
         slice_interval = 100 if self.mode == "test" else 1
-        for aid in tqdm(list(db.anns.keys())[::slice_interval]):  ## change slice interval to make the test brief
+        for aid in tqdm(list(db.anns.keys())[::100]):  ## change slice interval to make the test brief
             ann = db.anns[aid]
             image_id = ann["image_id"]
             img = db.loadImgs(image_id)[0]
@@ -388,7 +389,11 @@ class Dataset(torch.utils.data.Dataset):
         joint_coord, joint_valid, rel_root_depth, root_valid = transform_input_to_output_space(
             joint_coord, joint_valid, rel_root_depth, root_valid, self.root_joint_idx, self.joint_type, self.skeleton
         )
-        img = self.transform(img.astype(np.float32)) / 255.0
+        if isinstance(self.transform, transforms.ToTensor):
+            img = self.transform(img.astype(np.float32))
+        else:  # Albumentation augmentations
+            img = self.transform(image=img.astype(np.uint8))["image"].type(torch.float32)
+        img = img / 255.0
 
         if cfg.predict_type == "angles":
             rel_trans_hands_rTol = mano_trans[3:] - mano_trans[:3]

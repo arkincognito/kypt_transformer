@@ -9,9 +9,14 @@ from datetime import datetime
 
 class Config:
     # ~~~~~~~~~~~~~~~~~~~~~~Dataset~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
-    dataset = "InterHand2.6M"  # InterHand2.6M, ho3d, h2o3d, ho3d_h2o3d
+    dataset = "InterHand26M"  # InterHand26M, HO3D, H2O3D, HO3D_H2O3D
     pose_representation = "angles"  # 3D, 2p5D, angles
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+
+    ## Multi-dataset
+    trainset_3d = ["InterHand26M"]  # Human36M, InterHand26M, FreiHAND, "H2O3D"
+    trainset_2d = []  # MPII, MSCOCO
+    testset = None  # "PW3D"
 
     # ~~~~~~~~~~~~~~~~~~~~~~SMPLX path~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
     smplx_path = "/home/plask/wonho/hand_pose_estimation/frankmocap/handmocap/hand_modules/Hand4Whole_RELEASE/common/utils/human_model_files/"  # Path to MANO model files
@@ -41,7 +46,7 @@ class Config:
 
     # ~~~~~~~~~~~~~~~~~~~~~~Training Setup~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
     # number of epochs for which keypoints are obtained from ground-truth heatmaps and ground-truth object segmentation map
-    num_epochs_gt_peak_locs = 5 if dataset == "InterHand2.6M" else 25
+    num_epochs_gt_peak_locs = 5 if dataset == "InterHand26M" else 25
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 
     # Path to J_regressor_mano_ih26m.py in InterHand2.6M dataset
@@ -98,10 +103,10 @@ class Config:
     dep_rel_to = "parent"  # parent, root
     use_obj_rot_parameterization = True
     predict_obj_left_hand_trans = True
-    if dataset == "ho3d":
+    if dataset == "HO3D":
         predict_obj_left_hand_trans = False
 
-    if dataset in ["ho3d", "h2o3d", "ho3d_h2o3d"]:
+    if dataset in ["HO3D", "H2O3D", "HO3D_H2O3D"]:
         has_object = True
     else:
         has_object = False
@@ -155,12 +160,16 @@ class Config:
         obj_trans_indx = num_queries - 1
 
     ## optimization config
-    lr_dec_epoch = [15, 17] if dataset == "InterHand2.6M" else [45, 47]
-    end_epoch = 30 if dataset == "InterHand2.6M" else 150
+    lr_dec_epoch = [15, 17] if dataset == "InterHand26M" else [45, 47]
+    end_epoch = 30 if dataset == "InterHand26M" else 150
     lr = 1e-4
     lr_dec_factor = 2
-    train_batch_size = 90
+    train_batch_size = 180
     lr_drop = 200
+
+    ## validation config
+    validate = False
+    val_batch_size = train_batch_size * 2
 
     ## weights
     hm_weight = 100 / 10000
@@ -210,6 +219,7 @@ class Config:
     def setup_out_dirs(self, model_dir_name):
         self.model_dir = osp.join(self.output_dir, "model_dump", model_dir_name)
         self.tensorboard_dir = osp.join(self.output_dir, "tensorboard", model_dir_name)
+        self.val_tensorboard_dir = osp.join(self.output_dir, "tensorboard", "_".join([model_dir_name, "val"]))
 
     ## others
     num_thread = 20

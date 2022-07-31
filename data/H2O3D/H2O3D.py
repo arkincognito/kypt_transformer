@@ -25,7 +25,7 @@ jointsMapManoToDefault = [
 
 
 
-class Dataset(torch.utils.data.Dataset):
+class H2O3D(torch.utils.data.Dataset):
     def __init__(self, transform, mode, annot_subset, capture=None, camera=None, seq_name_test=None):
         self.mode = mode  # train, test, val
         if mode == 'test':

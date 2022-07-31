@@ -432,7 +432,8 @@ class Model(nn.Module):
             tgt_key_padding_mask=tgt_key_padding_mask,
             src_mask=src_mask,
             memory_mask=memory_mask,
-        )
+        )  # shape of transformer_out? 6 x 34((15 + 1 + 1) * 2) x 23 x 256?
+        # 15 + 1 + 1 pose shape trans
 
         # Make all the predictions
         if cfg.hand_type == "both":
