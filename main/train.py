@@ -209,8 +209,8 @@ def main():
             file.write("{} = {}\n".format(arg, attr))
 
     trainer = Trainer()
-    # trainer._make_batch_generator(args.annot_subset, transform=augmentation_transform)
-    trainer._make_batch_generator(args.annot_subset)
+    trainer._make_batch_generator(args.annot_subset, transform=augmentation_transform)
+    # trainer._make_batch_generator(args.annot_subset)
     trainer._make_model()
 
     writer = SummaryWriter(cfg.tensorboard_dir)
@@ -298,7 +298,7 @@ def main():
             trainer.tot_timer.tic()
             trainer.read_timer.tic()
 
-            if (itr % 100 == 0) and (itr > 0):
+            if (itr % 1000 == 0) and (itr > 0):
                 if cfg.validate:
                     # validate
                     val_loss = validate(trainer, val_writer, epoch, itr, cfg)

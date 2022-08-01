@@ -113,7 +113,7 @@ class InterHand26M(torch.utils.data.Dataset):
             print("Not fixing shapedirs bug of MANO")
 
         slice_interval = 100 if self.mode == "test" else 1
-        for aid in tqdm(list(db.anns.keys())[::100]):  ## change slice interval to make the test brief
+        for aid in tqdm(list(db.anns.keys())[::slice_interval]):  ## change slice interval to make the test brief
             ann = db.anns[aid]
             image_id = ann["image_id"]
             img = db.loadImgs(image_id)[0]
@@ -432,7 +432,7 @@ class InterHand26M(torch.utils.data.Dataset):
 
         # use zero mask for now. Later if required put ones along padded pixels
         mask = np.zeros((img.shape[1], img.shape[2])).astype(np.bool)
-        mask = self.transform(mask.astype(np.uint8))
+        mask = transforms.ToTensor()(mask.astype(np.uint8))
 
         if cfg.predict_type == "angles" and self.mode == "test":
             # vertices needed only in test mode to get the mano_joints, while training setting vertex loss to 0
