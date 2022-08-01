@@ -118,10 +118,10 @@ class Trainer(Base):
         self.logger.info("Creating train dataset...")
         trainset3d_loader = []
         for i in range(len(cfg.trainset_3d)):
-            trainset3d_loader.append(eval(cfg.trainset_3d[i])(transforms.ToTensor(), "train"))
+            trainset3d_loader.append(eval(cfg.trainset_3d[i])(transform, "train"))
         trainset2d_loader = []
         for i in range(len(cfg.trainset_2d)):
-            trainset2d_loader.append(eval(cfg.trainset_2d[i])(transforms.ToTensor(), "train"))
+            trainset2d_loader.append(eval(cfg.trainset_2d[i])(transform, "train"))
 
         valid_loader_num = 0
         if len(trainset3d_loader) > 0:
