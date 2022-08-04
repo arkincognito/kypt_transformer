@@ -19,15 +19,19 @@ class Config:
     testset = None  # "PW3D"
 
     # ~~~~~~~~~~~~~~~~~~~~~~SMPLX path~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
-    smplx_path = "/home/plask/wonho/hand_pose_estimation/frankmocap/handmocap/hand_modules/Hand4Whole_RELEASE/common/utils/human_model_files/"  # Path to MANO model files
+    smplx_path = "/home/plask/human_model_files/"  # Path to MANO model files
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 
     # ~~~~~~~~~~~~~~~~~~~~~~InterHand2.6M paths~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
-    interhand_anno_dir = "/warehouse/interhand26m/InterHand2.6M_5fps_batch1/annotations/"
-    interhand_images_path = "/warehouse/interhand26m/InterHand2.6M_5fps_batch1/images/"
+    interhand_anno_dir = "/home/plask/data/interhand26m/InterHand2.6M_5fps_batch1/annotations/"
+    interhand_images_path = "/home/plask/data/interhand26m/InterHand2.6M_5fps_batch1/images/"
 
     # RootNet output path
     root_net_output_path = "/media/shreyas/4aa82be1-14a8-47f7-93a7-171e3ebac2b0/networks/InterHand2.6M/data/InterHand2.6M/RootNet.output.on.InterHand2.6M"
+    # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+
+    # ~~~~~~~~~~~~~~~~~~~~~~~~~~~FreiHAND path~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+    freihand_path = "/home/plask/data/FreiHAND"
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 
     # ~~~~~~~~~~~~~~~~~~~~~~HO-3D paths~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
@@ -36,7 +40,7 @@ class Config:
 
     # ~~~~~~~~~~~~~~~~~~~~~~H2O-3D paths~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
     h2o3d_anno_dir = (
-        "/media/shreyas/4aa82be1-14a8-47f7-93a7-171e3ebac2b0/Datasets/dataset_h2o3d_final/dataset_h2o3d_final"
+        "/home/plask/data/h2o3d_v1/"
     )
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 
@@ -46,7 +50,8 @@ class Config:
 
     # ~~~~~~~~~~~~~~~~~~~~~~Training Setup~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
     # number of epochs for which keypoints are obtained from ground-truth heatmaps and ground-truth object segmentation map
-    num_epochs_gt_peak_locs = 5 if dataset == "InterHand26M" else 25
+    num_epochs_gt_peak_locs = 25 if dataset == "InterHand26M" else 25
+    # num_epochs_gt_peak_locs = 5 if dataset == "InterHand26M" else 25
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 
     # Path to J_regressor_mano_ih26m.py in InterHand2.6M dataset
@@ -164,12 +169,8 @@ class Config:
     end_epoch = 30 if dataset == "InterHand26M" else 150
     lr = 1e-4
     lr_dec_factor = 2
-    train_batch_size = 180
+    train_batch_size = 75
     lr_drop = 200
-
-    ## validation config
-    validate = False
-    val_batch_size = train_batch_size * 2
 
     ## weights
     hm_weight = 100 / 10000
@@ -197,6 +198,11 @@ class Config:
     obj_corner_weight = 1 / 10
     obj_corner_proj_weight = 0 * 1
     obj_weak_proj_weight = 0 * 1 / 10
+
+    ## validation config
+    validate = False
+    val_batch_size = train_batch_size * 2
+    training_batch_length = 4522
 
     ## testing config
     test_batch_size = 32
