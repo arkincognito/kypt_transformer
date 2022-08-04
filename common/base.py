@@ -287,8 +287,11 @@ class Tester(Base):
         self.batch_generator = batch_generator
         self.testset = testset_loader
 
-    def _make_model(self):
-        model_path = self.ckpt_path
+    def _make_model(self, ckpt_path=None):
+        if ckpt_path is None:
+            model_path = self.ckpt_path
+        else:
+            model_path = ckpt_path
         assert os.path.exists(model_path), "Cannot find model at " + model_path
         self.logger.info("Load checkpoint from {}".format(model_path))
 
@@ -314,6 +317,34 @@ class Tester(Base):
         model.eval()
 
         self.model = model
+
+    def _change_model_ckpt(self, ckpt_path):
+        try:
+            self.model
+        except:
+            self._make_model(ckpt_path)
+            return
+
+        assert os.path.exists(ckpt_path), "Cannot find model at " + ckpt_path
+        ckpt = torch.load(ckpt_path)
+        self.logger.info("Load checkpoint from {}".format(ckpt_path))
+
+        resnet_dec_keys = []
+        resnet_new_keys = []
+        for k in ckpt["network"].keys():
+            if "decoder_net" in k and "resnet_decoder" not in k:
+                new_k = k[:19] + "resnet_decoder." + k[19:]
+                resnet_new_keys.append(new_k)
+                resnet_dec_keys.append(k)
+        for i, k in enumerate(resnet_dec_keys):
+            ckpt["network"][resnet_new_keys[i]] = ckpt["network"][resnet_dec_keys[i]]
+            del ckpt["network"][k]
+
+        #### TODO: loading state dict again after loading it to the gpu may lead to duplicated models. See if this happens
+        self.model.load_state_dict(ckpt["network"], strict=True)
+        self.model.eval()
+
+
 
     def _evaluate(self, preds, gt, ckpt_path, annot_subset):
         if cfg.dataset == "InterHand26M":
