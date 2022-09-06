@@ -39,9 +39,7 @@ class Config:
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 
     # ~~~~~~~~~~~~~~~~~~~~~~H2O-3D paths~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
-    h2o3d_anno_dir = (
-        "/home/plask/data/h2o3d_v1/"
-    )
+    h2o3d_anno_dir = "/home/plask/data/h2o3d_v1/"
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 
     # ~~~~~~~~~~~~~~~~~~~~~~Object Model paths~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
@@ -111,10 +109,11 @@ class Config:
     if dataset == "HO3D":
         predict_obj_left_hand_trans = False
 
-    if dataset in ["HO3D", "H2O3D", "HO3D_H2O3D"]:
-        has_object = True
-    else:
-        has_object = False
+    has_object = False
+    # if dataset in ["HO3D", "H2O3D", "HO3D_H2O3D"]:
+    #     has_object = True
+    # else:
+    #     has_object = False
 
     hand_type = "both"
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
@@ -129,6 +128,8 @@ class Config:
     enc_layers = 6
     dec_layers = 6
     pre_norm = False
+
+    augment = False
 
     obj_cls_index = 43 if hand_type == "both" else 22
 
