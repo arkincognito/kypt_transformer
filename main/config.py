@@ -5,7 +5,20 @@ import os.path as osp
 import sys
 from common.utils.dir import add_pypath, make_folder
 from datetime import datetime
+import torch
+import random
+import numpy as np
 
+def fix_seeds(random_seed):
+
+    np.random.seed(random_seed)
+    torch.manual_seed(random_seed)
+    torch.cuda.manual_seed(random_seed)
+    torch.cuda.manual_seed_all(random_seed) # if use multi-GPU
+    # torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    np.random.seed(random_seed)
+    random.seed(random_seed)
 
 class Config:
     # ~~~~~~~~~~~~~~~~~~~~~~Dataset~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
@@ -39,9 +52,7 @@ class Config:
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 
     # ~~~~~~~~~~~~~~~~~~~~~~H2O-3D paths~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
-    h2o3d_anno_dir = (
-        "/home/plask/data/h2o3d_v1/"
-    )
+    h2o3d_anno_dir = "/home/plask/data/h2o3d_v1/"
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 
     # ~~~~~~~~~~~~~~~~~~~~~~Object Model paths~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
@@ -111,10 +122,11 @@ class Config:
     if dataset == "HO3D":
         predict_obj_left_hand_trans = False
 
-    if dataset in ["HO3D", "H2O3D", "HO3D_H2O3D"]:
-        has_object = True
-    else:
-        has_object = False
+    has_object = False
+    # if dataset in ["HO3D", "H2O3D", "HO3D_H2O3D"]:
+    #     has_object = True
+    # else:
+    #     has_object = False
 
     hand_type = "both"
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
@@ -129,6 +141,8 @@ class Config:
     enc_layers = 6
     dec_layers = 6
     pre_norm = False
+
+    augment = False
 
     obj_cls_index = 43 if hand_type == "both" else 22
 
@@ -258,3 +272,5 @@ sys.path.insert(0, osp.join(cfg.root_dir, "common"))
 add_pypath(osp.join(cfg.data_dir))
 add_pypath(osp.join(cfg.data_dir, cfg.dataset))
 make_folder(cfg.log_dir)
+# fix_seeds(0)
+
