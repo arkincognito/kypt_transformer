@@ -98,7 +98,7 @@ Depending on the dataset you intend to evaluate follow the instructions below.
 2. Download the checkpoint file from [here](https://1drv.ms/u/s!AsG9HA3ULXQRgsh38J5YoCaV76hICw?e=fP5jaJ)
 3. Run the following command:
    ```
-   python test.py --ckpt_path <path_to_interhand2.6m_ckpt> --gpu_ids <gpu_ids>
+   python test.py --ckpt_path <path_to_interhand2.6m_ckpt> --gpu_ids <gpu_ids> --use_big_decoder --dec_layers 6
    ```
    If running on multiple GPUs, set `<gpu_ids>` to `0,1,2,3`
 4. The error metrics are dumped into a .txt file in the folder containing the checkpoint
@@ -172,7 +172,6 @@ of HO-3D and H<sub>2</sub>O-3D. This training can be achieved by setting `datase
         booktitle = {IEEE Computer Vision and Pattern Recognition Conference},
         year = {2022}
         }
-
 
 ## Acknowlegements
 

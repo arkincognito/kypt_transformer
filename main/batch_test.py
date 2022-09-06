@@ -88,6 +88,12 @@ def run_batch_test():
     for path in glob.glob(ckpt_path_str):
         # change model weights
         print(f"checkpoint path: {path}")
+        
+        # check if there is a test result on the checkpoint
+        result_path = "_".join([path.split(".")[0], "all_6layers.txt"])
+        if os.path.exists(result_path):
+            print(f"checkpoint already tested, result at {result_path}")
+            continue
         tester._change_model_ckpt(path)
 
         preds = {
@@ -176,7 +182,7 @@ def run_batch_test():
 
                 for key in loss.keys():
                     if key not in loss_cum:
-                        loss_cum[key] = 0
+                        loss_cum[key] = loss[key]
                     loss_cum[key] = loss_cum[key] + loss[key]
 
                 hand_type_np = out["hand_type"].cpu().numpy()  # N
