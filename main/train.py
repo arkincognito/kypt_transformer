@@ -26,7 +26,7 @@ from common.utils.albumentation_augs import augmentation_transform
 import torch
 import re
 from common.utils.dir import delete_file
-
+import gc
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -42,6 +42,7 @@ def parse_args():
         help="annotation subset for InterHand2.6M dataset. Irrelavant for other datasets",
     )
     parser.add_argument("--validate", dest="validate", action="store_true")
+    parser.add_argument("--augment", dest="augment", action="store_true")
     args = parser.parse_args()
 
     if not args.gpu_ids:
@@ -209,8 +210,10 @@ def main():
             file.write("{} = {}\n".format(arg, attr))
 
     trainer = Trainer()
-    trainer._make_batch_generator(args.annot_subset, transform=augmentation_transform)
-    # trainer._make_batch_generator(args.annot_subset)
+    if cfg.augment:
+        trainer._make_batch_generator(args.annot_subset, transform=augmentation_transform)
+    else:
+        trainer._make_batch_generator(args.annot_subset)
     trainer._make_model()
 
     writer = SummaryWriter(cfg.tensorboard_dir)
@@ -298,8 +301,16 @@ def main():
             trainer.tot_timer.tic()
             trainer.read_timer.tic()
 
+            
+
             if (itr % 1000 == 0) and (itr > 0):
                 if cfg.validate:
+                    # Release memory for validation.
+                    ## TODO: 여기서 필요 없는 텐서 삭제하고 gc.collect() 불러오기
+
+                    del inputs, targets, meta_info, loss, out
+                    gc.collect()
+
                     # validate
                     val_loss = validate(trainer, val_writer, epoch, itr, cfg)
                     # early stopping
